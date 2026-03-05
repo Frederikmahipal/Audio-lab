@@ -2,23 +2,24 @@
 
 import { useState } from "react";
 import { useAudioLab } from "@/context/AudioLabContext";
-import {
-  buildTestSignal,
-  type SignalType,
-} from "@/lib/dsp/signals";
+import { buildTestSignal, type SignalType } from "@/lib/dsp/signals";
 
 const SAMPLE_RATE = 16000;
 
 const SIGNAL_OPTIONS: { value: SignalType; label: string }[] = [
-  { value: "sine", label: "Sine tone (440 Hz)" },
-  { value: "chirp", label: "Chirp (200 → 4000 Hz sweep)" },
-  { value: "tone_plus_noise", label: "Tone + white noise" },
-  { value: "am_tone", label: "Amplitude-modulated tone (440 Hz)" },
+  {
+    value: "harmonic_sweep",
+    label: "Harmonic sweep (clear diagonal bands)",
+  },
+  {
+    value: "step_pattern",
+    label: "Step pattern (harmonics + transients)",
+  },
 ];
 
 export function TestSignalGenerator() {
   const { setAudio } = useAudioLab();
-  const [signalType, setSignalType] = useState<SignalType>("sine");
+  const [signalType, setSignalType] = useState<SignalType>("harmonic_sweep");
   const [duration, setDuration] = useState(5);
 
   function handleGenerate() {
@@ -34,20 +35,16 @@ export function TestSignalGenerator() {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
-      <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-        Generate test signal
-      </h3>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Reproducible synthetic signals for debugging spectrogram and MFCC (16 kHz).
-      </p>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">Type</span>
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2">
+          <span className="block text-[11px] uppercase tracking-[0.11em] text-[var(--ui-muted)]">
+            Demo signal
+          </span>
           <select
             value={signalType}
             onChange={(e) => setSignalType(e.target.value as SignalType)}
-            className="rounded border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            className="mt-1 w-full bg-transparent text-sm text-[var(--ui-ink)] outline-none"
           >
             {SIGNAL_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -56,9 +53,10 @@ export function TestSignalGenerator() {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-            Duration (s)
+
+        <label className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2">
+          <span className="block text-[11px] uppercase tracking-[0.11em] text-[var(--ui-muted)]">
+            Duration (seconds)
           </span>
           <input
             type="number"
@@ -67,17 +65,18 @@ export function TestSignalGenerator() {
             step={0.5}
             value={duration}
             onChange={(e) => setDuration(Number(e.target.value))}
-            className="w-20 rounded border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            className="mt-1 w-full bg-transparent text-sm text-[var(--ui-ink)] outline-none"
           />
         </label>
-        <button
-          type="button"
-          onClick={handleGenerate}
-          className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500"
-        >
-          Generate
-        </button>
       </div>
+
+      <button
+        type="button"
+        onClick={handleGenerate}
+        className="rounded-md bg-[var(--ui-accent)] px-3.5 py-2 text-sm font-semibold text-white transition hover:brightness-105"
+      >
+        Generate Signal
+      </button>
     </div>
   );
 }

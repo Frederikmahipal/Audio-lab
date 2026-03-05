@@ -35,7 +35,7 @@ Open [http://localhost:3000](http://localhost:3000). Use **Record & Upload** to 
 - **Features:**
   - **Upload audio (WAV/MP3):** File is decoded in the browser (Web Audio API), converted to mono, resampled to 16 kHz, and peak-normalised.
   - **Record from mic:** Uses `MediaRecorder`; when you stop, the recording is decoded the same way as uploads.
-  - **Generate test signal:** Synthetic signals (sine, chirp, tone+noise, AM tone) at 16 kHz for reproducible experiments.
+  - **Generate test signal:** Two DSP-focused synthetic signals at 16 kHz for clear waveform/spectrogram demonstrations.
 - **After loading:** An **Open Analyze →** link appears; one click takes you to the analysis workspace with the same clip.
 
 ### `/analyze` — Analysis workspace
@@ -80,7 +80,7 @@ lib/
     stft.ts           # STFT (magnitude only), STFT complex (mag+phase), ISTFT, magnitudeToDb
     denoise.ts        # Noise profile (median), spectral subtraction
     filter.ts         # High-cut (low-pass) filter via STFT
-    signals.ts        # Synthetic signals: sine, chirp, tone+noise, AM tone, buildTestSignal
+    signals.ts        # Synthetic demo signals: harmonic_sweep, step_pattern, buildTestSignal
 ```
 
 ---
@@ -91,7 +91,7 @@ lib/
 |--------|--------|----------------|
 | Upload WAV/MP3 | Home | Decode → mono, 16 kHz, peak normalise → store in context |
 | Record from mic | Home | `getUserMedia` + `MediaRecorder` → blob → same decode path |
-| Generate test signal | Home | Sine / chirp / tone+noise / AM at 16 kHz → store in context |
+| Generate test signal | Home | Harmonic sweep / step pattern at 16 kHz → store in context |
 | Play original / filtered / denoised | Analyze | Web Audio `AudioBuffer` + `BufferSource` for each variant |
 | High cut slider | Analyze | Low-pass filter: zero high bins in STFT → ISTFT → muffled sound |
 | Denoising | Analyze | Noise profile from first N s → spectral subtraction → ISTFT |
@@ -167,28 +167,22 @@ Uses the `fft.js` library (real FFT).
 ### `lib/dsp/filter.ts`
 
 - **`highCutFilter(samples, sampleRate, stftOptions, cutFrac)`**  
-  Applies a low-pass (high-cut) filter in the frequency domain: runs `stftComplex`, zeros out high-frequency bins (keeps the lowest `(1 - cutFrac*0.9)` fraction of bins), then `istft`. `cutFrac` 0 = no change; 1 = very muffled. Output is peak-normalised. Used for the “High cut” slider so you clearly hear the effect of processing.
+  Applies a low-pass (high-cut) filter in the frequency domain: runs `stftComplex`, zeros bins above a cutoff frequency, then `istft`. Cutoff mapping is matched with playback so processed visualization and playback stay consistent. `cutFrac` 0 = no change; 1 = very muffled. Output is peak-normalised.
 
 ---
 
 ### `lib/dsp/signals.ts`
 
-Synthetic test signals (all peak-normalised to [-1, 1], fixed sample rate).
+Synthetic test signals (peak-normalised to [-1, 1], fixed sample rate).
 
-- **`generateSineTone(sampleRate, durationSeconds, frequencyHz)`**  
-  Pure sine at the given frequency.
+- **`generateHarmonicSweep(sampleRate, durationSeconds)`**  
+  Fundamental glides upward with harmonics. Produces clear diagonal harmonic bands in the spectrogram.
 
-- **`generateChirp(sampleRate, durationSeconds, f0Hz, f1Hz)`**  
-  Linear frequency sweep from `f0Hz` to `f1Hz` over the duration.
-
-- **`generateTonePlusNoise(sampleRate, durationSeconds, frequencyHz, noiseLevel)`**  
-  Sine tone plus white noise. `noiseLevel` 0 = pure tone; 1 = equal mix (before normalisation).
-
-- **`generateAmTone(sampleRate, durationSeconds, carrierHz, modFrequencyHz, modDepth)`**  
-  Amplitude modulation: `(1 + modDepth*sin(2π fm t)) * sin(2π fc t)`.
+- **`generateStepPattern(sampleRate, durationSeconds)`**  
+  Stepped harmonic notes with short broadband transition bursts. Produces horizontal stacks plus vertical transients.
 
 - **`buildTestSignal(type, options)`**  
-  Dispatcher for the UI: given `sine` | `chirp` | `tone_plus_noise` | `am_tone` and options (sample rate, duration, frequencies, etc.), returns the corresponding `Float32Array`.
+  UI dispatcher for `harmonic_sweep` or `step_pattern`.
 
 ---
 
@@ -211,7 +205,7 @@ Synthetic test signals (all peak-normalised to [-1, 1], fixed sample rate).
 | **Noise estimation** | `denoise.ts`: median over first N frames. |
 | **Spectral subtraction** | `denoise.ts`: subtract estimated noise with floor. |
 | **Filtering** | `filter.ts`: high-cut (low-pass) by zeroing high bins in STFT domain. |
-| **Synthetic signals** | `signals.ts`: sine, chirp, tone+noise, AM (for reproducible experiments). |
+| **Synthetic signals** | `signals.ts`: harmonic_sweep and step_pattern (for clear DSP demos). |
 
 ---
 

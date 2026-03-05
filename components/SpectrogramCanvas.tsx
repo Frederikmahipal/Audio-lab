@@ -34,41 +34,60 @@ export function SpectrogramCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = width;
-    canvas.height = height;
+    const dpr = window.devicePixelRatio || 1;
+    const targetWidth = Math.max(1, Math.floor((canvas.clientWidth || width) * dpr));
+    const targetHeight = Math.max(
+      1,
+      Math.floor((canvas.clientHeight || height) * dpr)
+    );
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+    }
+    const drawWidth = canvas.width;
+    const drawHeight = canvas.height;
+    ctx.clearRect(0, 0, drawWidth, drawHeight);
 
     const numFrames = dbFrames.length;
     const numBins = dbFrames[0].length;
 
-    // Find dB range for colormap
-    let minDb = Infinity;
+    // Find robust dB range for colormap.
     let maxDb = -Infinity;
+    let observedMinDb = Infinity;
+    const ignoreLowBins = Math.min(2, numBins - 1);
     for (let t = 0; t < numFrames; t++) {
-      for (let f = 0; f < numBins; f++) {
+      for (let f = ignoreLowBins; f < numBins; f++) {
         const v = dbFrames[t][f];
-        if (v < minDb) minDb = v;
         if (v > maxDb) maxDb = v;
+        if (v < observedMinDb) observedMinDb = v;
       }
     }
-    const range = maxDb - minDb || 1;
+    if (!Number.isFinite(maxDb) || !Number.isFinite(observedMinDb)) return;
 
-    const imageData = ctx.createImageData(width, height);
+    const minDb = Math.max(observedMinDb, maxDb - 90);
+    const range = Math.max(30, maxDb - minDb);
+
+    const imageData = ctx.createImageData(drawWidth, drawHeight);
     const data = imageData.data;
 
-    for (let py = 0; py < height; py++) {
-      const binIndex = Math.floor((1 - py / height) * numBins); // low freq at bottom
-      const bin = Math.max(0, Math.min(binIndex, numBins - 1));
-      for (let px = 0; px < width; px++) {
-        const frameIndex = Math.floor((px / width) * numFrames);
-        const frame = Math.max(0, Math.min(frameIndex, numFrames - 1));
-        const db = dbFrames[frame][bin];
-        const t = (db - minDb) / range;
-        // Simple grayscale: 0 = black, 1 = white
-        const gray = Math.round(255 * Math.max(0, Math.min(1, t)));
-        const i = (py * width + px) * 4;
-        data[i] = gray;
-        data[i + 1] = gray;
-        data[i + 2] = gray;
+    const frameDenom = Math.max(1, drawWidth - 1);
+    const binDenom = Math.max(1, drawHeight - 1);
+
+    for (let py = 0; py < drawHeight; py++) {
+      const binIndex = Math.floor(((drawHeight - 1 - py) / binDenom) * (numBins - 1));
+      const bin = Math.max(0, Math.min(numBins - 1, binIndex)); // low at bottom
+      for (let px = 0; px < drawWidth; px++) {
+        const frameIndex = Math.floor((px / frameDenom) * (numFrames - 1));
+        const frame = Math.max(0, Math.min(numFrames - 1, frameIndex));
+        const db =
+          bin < ignoreLowBins ? minDb : dbFrames[frame][bin];
+        const normalized = Math.max(0, Math.min(1, (db - minDb) / range));
+        const t = Math.pow(normalized, 0.78);
+        const [r, g, b] = colorMap(t);
+        const i = (py * drawWidth + px) * 4;
+        data[i] = r;
+        data[i + 1] = g;
+        data[i + 2] = b;
         data[i + 3] = 255;
       }
     }
@@ -81,7 +100,27 @@ export function SpectrogramCanvas({
       width={width}
       height={height}
       className={className}
-      style={{ maxWidth: "100%", height: "auto" }}
+      style={{ width: "100%", height: "100%", display: "block" }}
     />
   );
+}
+
+function colorMap(t: number): [number, number, number] {
+  if (t < 0.42) {
+    return lerpColor(t / 0.42, [236, 241, 249], [174, 192, 222]);
+  }
+  return lerpColor((t - 0.42) / 0.58, [174, 192, 222], [44, 70, 116]);
+}
+
+function lerpColor(
+  t: number,
+  a: [number, number, number],
+  b: [number, number, number]
+): [number, number, number] {
+  const x = Math.max(0, Math.min(1, t));
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * x),
+    Math.round(a[1] + (b[1] - a[1]) * x),
+    Math.round(a[2] + (b[2] - a[2]) * x),
+  ];
 }

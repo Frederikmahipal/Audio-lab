@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useAudioLab } from "@/context/AudioLabContext";
 import { decodeAudioToMono } from "@/lib/audio";
-import Link from "next/link";
 
 export function AudioInput() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,64 +91,76 @@ export function AudioInput() {
 
   function stopRecording() {
     const recorder = mediaRecorderRef.current;
-    if (recorder && status === "recording") {
-      recorder.stop();
-    }
+    if (recorder && status === "recording") recorder.stop();
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="audio/wav,audio/mpeg,audio/mp3,audio/x-wav,.wav,.mp3"
-          onChange={handleFile}
-          className="hidden"
-        />
+    <div className="space-y-4">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="audio/wav,audio/mpeg,audio/mp3,audio/x-wav,.wav,.mp3"
+        onChange={handleFile}
+        className="hidden"
+      />
+
+      <div className="flex flex-wrap gap-2.5">
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={status === "loading" || status === "recording"}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className="rounded-md bg-[var(--ui-accent)] px-3.5 py-2 text-sm font-semibold text-white transition hover:brightness-105 disabled:opacity-55"
         >
-          {status === "loading" ? "Decoding…" : "Upload audio (WAV/MP3)"}
+          {status === "loading" ? "Decoding..." : "Upload WAV/MP3"}
         </button>
         {status !== "recording" ? (
           <button
             type="button"
             onClick={startRecording}
             disabled={status === "loading"}
-            className="rounded-lg border border-red-500 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-400 dark:bg-zinc-900 dark:text-red-400 dark:hover:bg-zinc-800"
+            className="rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3.5 py-2 text-sm font-semibold text-[var(--ui-ink)] transition hover:bg-[var(--ui-surface-muted)] disabled:opacity-55"
           >
-            Record from mic
+            Record Mic
           </button>
         ) : (
           <button
             type="button"
             onClick={stopRecording}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500"
+            className="rounded-md bg-[var(--ui-accent)] px-3.5 py-2 text-sm font-semibold text-white transition hover:brightness-105"
           >
-            Stop recording
+            Stop Recording
           </button>
         )}
         {audio && (
           <Link
             href="/analyze"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+            className="rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3.5 py-2 text-sm font-semibold text-[var(--ui-ink)] transition hover:bg-[var(--ui-surface-muted)]"
           >
-            Open Analyze →
+            Open Analyze
           </Link>
         )}
       </div>
-      {status === "recording" && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Recording… Click &quot;Stop recording&quot; when done.
-        </p>
-      )}
+
+      <p className="text-xs text-[var(--ui-muted)]">
+        {status === "recording"
+          ? "Recording is active. Stop when you want to decode and load it."
+          : status === "done" && audio
+            ? `Loaded clip: ${formatDuration(audio.durationSeconds)} at ${audio.sampleRate} Hz`
+            : "Tip: short clips process faster while tuning denoise parameters."}
+      </p>
+
       {status === "error" && (
-        <p className="text-sm text-red-600 dark:text-red-400">{errorMessage}</p>
+        <p className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-muted)] px-3 py-2 text-sm text-[var(--ui-ink)]">
+          {errorMessage}
+        </p>
       )}
     </div>
   );
+}
+
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }

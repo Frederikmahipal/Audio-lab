@@ -3,7 +3,7 @@
  * Real input → magnitude (and optionally phase) for STFT/denoise.
  */
 
-const FFT = require("fft.js");
+import FFT from "fft.js";
 
 export function fftMagnitude(realInput: Float32Array): Float32Array {
   const { magnitude } = fftMagnitudeAndPhase(realInput);

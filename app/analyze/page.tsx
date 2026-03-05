@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAudioLab } from "@/context/AudioLabContext";
 import { WaveformCanvas } from "@/components/WaveformCanvas";
 import { SpectrogramCanvas } from "@/components/SpectrogramCanvas";
 import { AudioPlayer } from "@/components/AudioPlayer";
-import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { AppTopNav } from "@/components/AppTopNav";
 import {
   stft,
   stftComplex,
@@ -14,10 +15,7 @@ import {
   type STFTOptions,
 } from "@/lib/dsp/stft";
 import type { WindowType } from "@/lib/dsp/windows";
-import {
-  estimateNoiseProfile,
-  spectralSubtraction,
-} from "@/lib/dsp/denoise";
+import { estimateNoiseProfile, spectralSubtraction } from "@/lib/dsp/denoise";
 import { highCutFilter } from "@/lib/dsp/filter";
 
 const FFT_SIZES = [512, 1024, 2048] as const;
@@ -45,11 +43,11 @@ type SpectrogramSource = "original" | "processed";
 
 const HELP_TEXT: Record<NonNullable<HelpKey>, string> = {
   fftSize:
-    "Length of each analysis frame in samples. Larger values give sharper frequency resolution (narrower bands) but blurrier time resolution. At 16 kHz, 1024 ≈ 64 ms per frame. You hear no difference—only the spectrogram picture changes.",
+    "How many samples each FFT frame analyzes. Bigger FFT gives clearer frequency detail, smaller FFT gives sharper timing detail.",
   hopLength:
-    "How many samples the window moves forward for each new frame. Smaller hop = more overlapping frames = smoother in time but more computation. Doesn’t change the sound, only how the spectrogram looks.",
+    "How far the analysis window moves each step. Smaller hop gives denser time tracking but costs more computation.",
   window:
-    "Shape of the window applied to each frame before the FFT. Hann and Hamming reduce spectral leakage (smoother peaks); rectangular is sharp but can show artifacts. Affects the spectrogram display only, not playback.",
+    "Window shape before each FFT frame. Hann and Hamming reduce spectral leakage; rectangular is more raw but can show more artifacts.",
 };
 
 export default function AnalyzePage() {
@@ -93,12 +91,7 @@ export default function AnalyzePage() {
       DEFAULT_PROCESSING_STFT,
       highCutFrac
     );
-  }, [
-    audio?.samples,
-    audio?.sampleRate,
-    denoiseBaseSamples,
-    highCutFrac,
-  ]);
+  }, [audio?.samples, audio?.sampleRate, denoiseBaseSamples, highCutFrac]);
 
   const spectrogramSamples = useMemo(() => {
     if (!audio?.samples.length) return null;
@@ -132,7 +125,6 @@ export default function AnalyzePage() {
       setIsDenoiseProcessing(true);
       setDenoiseError(null);
 
-      // Let status text paint first before heavy DSP work starts.
       computeTimer = window.setTimeout(() => {
         if (denoiseJobRef.current !== jobId) return;
         try {
@@ -168,17 +160,12 @@ export default function AnalyzePage() {
     denoiseAlpha,
   ]);
 
-  // Playback source buffer: original or denoised. Muffle is applied live in AudioPlayer.
   const playbackSamples = useMemo(() => {
     if (!audio?.samples.length) return new Float32Array(0);
     if (bypassProcessing) return audio.samples;
     if (denoiseBaseSamples) return denoiseBaseSamples;
     return audio.samples;
-  }, [
-    audio?.samples,
-    bypassProcessing,
-    denoiseBaseSamples,
-  ]);
+  }, [audio?.samples, bypassProcessing, denoiseBaseSamples]);
 
   const playbackHighCutFrac = bypassProcessing ? 0 : highCutFrac;
 
@@ -222,196 +209,122 @@ export default function AnalyzePage() {
 
   if (!audio) {
     return (
-      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-        <header className="border-b border-zinc-200 dark:border-zinc-800">
-          <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
+      <div className="min-h-screen text-[var(--ui-ink)]">
+        <AppTopNav active="analyze" />
+        <main className="mx-auto w-full max-w-[1440px] px-4 py-10 sm:px-6">
+          <div className="panel p-7">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--ui-muted)]">
+              No Audio Loaded
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold">
+              Open Capture first and load a signal.
+            </h1>
+            <p className="mt-3 max-w-xl text-sm text-[var(--ui-muted)]">
+              Analyze needs an active clip in memory. Upload, record, or generate a
+              signal on the capture page.
+            </p>
             <Link
               href="/"
-              className="text-lg font-semibold text-zinc-900 dark:text-zinc-100"
+              className="mt-5 inline-flex rounded-full bg-[var(--ui-accent)] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-105"
             >
-              Audio Lab
+              Go to Capture
             </Link>
-            <nav className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-400">
-              <Link href="/" className="hover:text-zinc-900 dark:hover:text-zinc-100">
-                Record &amp; Upload
-              </Link>
-              <Link href="/analyze" className="hover:text-zinc-900 dark:hover:text-zinc-100">
-                Analyze
-              </Link>
-            </nav>
           </div>
-        </header>
-        <main className="mx-auto max-w-4xl px-4 py-12">
-          <p className="text-zinc-600 dark:text-zinc-400">
-            No audio loaded.{" "}
-            <Link href="/" className="font-medium text-zinc-900 underline dark:text-zinc-100">
-              Upload a file on the home page
-            </Link>{" "}
-            first.
-          </p>
         </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
-          <Link
-            href="/"
-            className="text-lg font-semibold text-zinc-900 dark:text-zinc-100"
-          >
-            Audio Lab
-          </Link>
-          <nav className="flex gap-4 text-sm text-zinc-600 dark:text-zinc-400">
-            <Link href="/" className="hover:text-zinc-900 dark:hover:text-zinc-100">
-              Record &amp; Upload
-            </Link>
-            <Link href="/analyze" className="hover:text-zinc-900 dark:hover:text-zinc-100">
-              Analyze
-            </Link>
-          </nav>
-        </div>
-      </header>
+    <div className="min-h-screen text-[var(--ui-ink)]">
+      <AppTopNav active="analyze" />
 
-      <main className="mx-auto max-w-4xl px-4 py-8">
-        <h1 className="mb-1 text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-          Analyze
-        </h1>
-        <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
-          1. Listen to your clip. 2. Look at the waveform and spectrogram. 3. Use the controls to change the sound or the view.
-        </p>
-
-        {/* ─── Listen ─── */}
-        <section className="mb-8">
-          <h2 className="mb-2 text-base font-medium text-zinc-800 dark:text-zinc-200">
-            Listen
-          </h2>
-          <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
-            Muffle updates live while audio is playing. Use bypass for A/B checks and optionally loudness-match the processed signal.
-          </p>
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <AudioPlayer
-              samples={playbackSamples}
-              sampleRate={audio.sampleRate}
-              highCutFrac={playbackHighCutFrac}
-              outputGain={playbackOutputGain}
-            />
-          </div>
-        </section>
-
-        {/* ─── Visuals ─── */}
-        <section className="mb-8">
-          <h2 className="mb-3 text-base font-medium text-zinc-800 dark:text-zinc-200">
-            View
-          </h2>
-          <div className="space-y-4">
-            <div>
-              <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">Waveform — amplitude over time</p>
-              <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                <WaveformCanvas
-                  samples={audio.samples}
-                  width={800}
-                  height={160}
-                  className="w-full"
-                />
-              </div>
-            </div>
-            <div>
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Spectrogram — frequency over time (brightness = energy)
-                </p>
-                <div className="inline-flex rounded-md border border-zinc-300 bg-zinc-100 p-0.5 dark:border-zinc-700 dark:bg-zinc-800">
-                  <button
-                    type="button"
-                    onClick={() => setSpectrogramSource("original")}
-                    className={`rounded px-2 py-1 text-[11px] ${
-                      spectrogramSource === "original"
-                        ? "bg-white text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
-                        : "text-zinc-600 dark:text-zinc-300"
-                    }`}
-                  >
-                    Original
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSpectrogramSource("processed")}
-                    className={`rounded px-2 py-1 text-[11px] ${
-                      spectrogramSource === "processed"
-                        ? "bg-white text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
-                        : "text-zinc-600 dark:text-zinc-300"
-                    }`}
-                  >
-                    Processed
-                  </button>
-                </div>
-              </div>
-              <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                {dbFrames && dbFrames.length > 0 && (
-                  <SpectrogramCanvas
-                    dbFrames={dbFrames}
-                    sampleRate={audio.sampleRate}
-                    fftSize={visualStftOptions.fftSize}
-                    hopLength={visualStftOptions.hopLength}
-                    width={800}
-                    height={240}
-                    className="w-full"
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ─── Change the sound ─── */}
-        <section className="mb-8">
-          <h2 className="mb-3 text-base font-medium text-zinc-800 dark:text-zinc-200">
-            Change the sound
-          </h2>
-          <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-            These controls define the processed version. Use bypass to quickly compare with the original.
-          </p>
-          <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex flex-wrap gap-4">
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={bypassProcessing}
-                  onChange={(e) => setBypassProcessing(e.target.checked)}
-                  className="rounded border-zinc-300 accent-zinc-700"
-                />
-                <span>Bypass processing (A/B)</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={loudnessMatch}
-                  disabled={bypassProcessing}
-                  onChange={(e) => setLoudnessMatch(e.target.checked)}
-                  className="rounded border-zinc-300 accent-zinc-700 disabled:opacity-50"
-                />
-                <span className={bypassProcessing ? "opacity-50" : ""}>
-                  Loudness match
+      <main className="mx-auto w-full max-w-[1440px] px-4 pb-4 pt-3 sm:px-6 xl:h-[calc(100vh_-_68px)]">
+        <div className="grid gap-4 xl:h-full xl:grid-cols-[340px_minmax(0,1fr)]">
+          <aside className="soft-scroll min-h-0 overflow-y-auto rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 sm:p-5">
+            <section>
+              <p className="font-mono text-xs uppercase tracking-[0.2em] text-[var(--ui-muted)]">Session</p>
+              <h1 className="mt-2 text-2xl font-semibold leading-tight">
+                Analyze clip
+              </h1>
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.1em]">
+                <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-strong)] px-3 py-1.5 text-[var(--ui-muted)]">
+                  {audio.sampleRate} Hz
                 </span>
-              </label>
-            </div>
-            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-              {bypassProcessing
-                ? "Bypass active: playback uses original audio without muffle/denoise."
-                : loudnessMatch
-                  ? `Loudness match gain: ${playbackOutputGain.toFixed(2)}x`
-                  : "Loudness match disabled."}
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800/50 dark:bg-blue-900/10">
-              <h3 className="mb-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">Muffled (high-cut)</h3>
-              <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-                Slide right → fewer high frequencies → sound like behind a wall.
+                <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-strong)] px-3 py-1.5 text-[var(--ui-muted)]">
+                  {formatDuration(audio.durationSeconds)}
+                </span>
+                <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-strong)] px-3 py-1.5 text-[var(--ui-muted)]">
+                  High cut {Math.round(highCutFrac * 100)}%
+                </span>
+              </div>
+            </section>
+
+            <section className="mt-5 border-t border-[var(--ui-border)] pt-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--ui-muted)]">
+                Playback
+              </h2>
+              <p className="mt-1 text-xs text-[var(--ui-muted)]">
+                Realtime preview with optional A/B and gain matching.
               </p>
-              <div className="flex items-center gap-2">
+              <div className="mt-3">
+                <AudioPlayer
+                  samples={playbackSamples}
+                  sampleRate={audio.sampleRate}
+                  highCutFrac={playbackHighCutFrac}
+                  outputGain={playbackOutputGain}
+                />
+              </div>
+            </section>
+
+            <section className="mt-4 border-t border-[var(--ui-border)] pt-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--ui-muted)]">
+                Compare
+              </h2>
+              <div className="mt-3 space-y-2">
+                <label className="flex cursor-pointer items-center justify-between rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2">
+                  <span className="text-sm">Bypass processing</span>
+                  <input
+                    type="checkbox"
+                    checked={bypassProcessing}
+                    onChange={(e) => setBypassProcessing(e.target.checked)}
+                    className="h-4 w-4 rounded border-[var(--ui-border)] accent-[var(--ui-accent)]"
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center justify-between rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2">
+                  <span
+                    className={`text-sm ${
+                      bypassProcessing ? "text-[var(--ui-muted)]/65" : ""
+                    }`}
+                  >
+                    Loudness match
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={loudnessMatch}
+                    disabled={bypassProcessing}
+                    onChange={(e) => setLoudnessMatch(e.target.checked)}
+                    className="h-4 w-4 rounded border-[var(--ui-border)] accent-[var(--ui-accent)] disabled:opacity-45"
+                  />
+                </label>
+              </div>
+              <p className="mt-3 text-xs text-[var(--ui-muted)]">
+                {bypassProcessing
+                  ? "Bypass active: original signal only."
+                  : loudnessMatch
+                    ? `Matched gain: ${playbackOutputGain.toFixed(2)}x`
+                    : "Loudness match disabled."}
+              </p>
+            </section>
+
+            <section className="mt-4 border-t border-[var(--ui-border)] pt-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--ui-muted)]">
+                Muffle
+              </h2>
+              <p className="mt-1 text-xs text-[var(--ui-muted)]">
+                Realtime high-cut filter.
+              </p>
+              <div className="mt-3 flex items-center gap-3">
                 <input
                   type="range"
                   min={0}
@@ -419,164 +332,256 @@ export default function AnalyzePage() {
                   step={0.05}
                   value={highCutFrac}
                   onChange={(e) => setHighCutFrac(Number(e.target.value))}
-                  className="h-2 flex-1 rounded accent-blue-600"
+                  className="h-2 flex-1 cursor-pointer rounded-lg accent-[var(--ui-accent)]"
                 />
-                <span className="w-10 text-right text-xs text-zinc-500">{Math.round(highCutFrac * 100)}%</span>
+                <span className="w-12 text-right font-mono text-xs text-[var(--ui-muted)]">
+                  {Math.round(highCutFrac * 100)}%
+                </span>
               </div>
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-800/50 dark:bg-amber-900/10">
-              <h3 className="mb-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">Denoised</h3>
-              <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-                Uses the start of the clip as &quot;noise&quot; and subtracts it. Best when the start is silence or room tone.
-              </p>
-              <label className="flex cursor-pointer items-center gap-2">
+            </section>
+
+            <section className="mt-4 border-t border-[var(--ui-border)] pt-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--ui-muted)]">
+                Denoise
+              </h2>
+              <label className="mt-2 flex cursor-pointer items-center justify-between rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2">
+                <span className="text-sm">Enable denoise</span>
                 <input
                   type="checkbox"
                   checked={applyDenoise}
                   onChange={(e) => handleDenoiseToggle(e.target.checked)}
-                  className="rounded border-zinc-300 accent-amber-600"
+                  className="h-4 w-4 rounded border-[var(--ui-border)] accent-[var(--ui-accent)]"
                 />
-                <span className="text-sm">Apply denoising</span>
               </label>
               {applyDenoise && (
-                <div className="mt-3">
-                  <div className="flex flex-wrap gap-4">
-                    <label className="flex flex-col gap-0.5 text-xs">
-                      <span className="text-zinc-500">Noise from first (s)</span>
-                      <input
-                        type="number"
-                        min={0.1}
-                        max={5}
-                        step={0.1}
-                        value={noiseSeconds}
-                        onChange={(e) => handleNoiseSecondsChange(Number(e.target.value))}
-                        className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 dark:border-zinc-600 dark:bg-zinc-800"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-0.5 text-xs">
-                      <span className="text-zinc-500">Strength (α)</span>
-                      <input
-                        type="number"
-                        min={0.5}
-                        max={3}
-                        step={0.1}
-                        value={denoiseAlpha}
-                        onChange={(e) => handleDenoiseAlphaChange(Number(e.target.value))}
-                        className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 dark:border-zinc-600 dark:bg-zinc-800"
-                      />
-                    </label>
-                  </div>
-                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    {denoiseError
-                      ? `Denoise failed: ${denoiseError}`
-                      : isDenoiseProcessing
-                        ? "Processing denoise..."
-                        : denoiseReady
-                          ? "Denoised buffer ready (updates as settings change)."
-                          : "Using original audio until denoise is ready."}
-                  </p>
-                  <p className="mt-1 text-[11px] text-zinc-400 dark:text-zinc-500">
-                    Processing STFT is fixed at 1024 FFT / 256 hop / Hann window.
-                  </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-2">
+                    <span className="block text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Noise (s)
+                    </span>
+                    <input
+                      type="number"
+                      min={0.1}
+                      max={5}
+                      step={0.1}
+                      value={noiseSeconds}
+                      onChange={(e) => handleNoiseSecondsChange(Number(e.target.value))}
+                      className="mt-1 w-full bg-transparent text-sm outline-none"
+                    />
+                  </label>
+                  <label className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-2">
+                    <span className="block text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Strength (a)
+                    </span>
+                    <input
+                      type="number"
+                      min={0.5}
+                      max={3}
+                      step={0.1}
+                      value={denoiseAlpha}
+                      onChange={(e) => handleDenoiseAlphaChange(Number(e.target.value))}
+                      className="mt-1 w-full bg-transparent text-sm outline-none"
+                    />
+                  </label>
                 </div>
               )}
+              <p className="mt-3 text-xs text-[var(--ui-muted)]">
+                {denoiseError
+                  ? `Denoise failed: ${denoiseError}`
+                  : isDenoiseProcessing
+                    ? "Processing denoise..."
+                    : denoiseReady
+                      ? "Denoise buffer ready."
+                      : "Using original until denoise is ready."}
+              </p>
+            </section>
+
+            <section className="mt-4 border-t border-[var(--ui-border)] pt-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--ui-muted)]">
+                Spectrogram Lens
+              </h2>
+              <p className="mt-1 text-xs text-[var(--ui-muted)]">
+                Visual-only STFT settings. Playback processing stays fixed.
+              </p>
+              <div className="mt-3 space-y-2">
+                <label className="block rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-2">
+                  <span className="flex items-center justify-between text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                    FFT size
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen((h) => (h === "fftSize" ? null : "fftSize"))}
+                      className="h-5 w-5 rounded-full border border-[var(--ui-border)] text-[10px]"
+                    >
+                      i
+                    </button>
+                  </span>
+                  <select
+                    value={visualStftOptions.fftSize}
+                    onChange={(e) =>
+                      setVisualStftOptions((o) => ({
+                        ...o,
+                        fftSize: Number(e.target.value),
+                      }))
+                    }
+                    className="mt-1 w-full bg-transparent text-sm outline-none"
+                  >
+                    {FFT_SIZES.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-2">
+                  <span className="flex items-center justify-between text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                    Hop length
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setHelpOpen((h) => (h === "hopLength" ? null : "hopLength"))
+                      }
+                      className="h-5 w-5 rounded-full border border-[var(--ui-border)] text-[10px]"
+                    >
+                      i
+                    </button>
+                  </span>
+                  <select
+                    value={visualStftOptions.hopLength}
+                    onChange={(e) =>
+                      setVisualStftOptions((o) => ({
+                        ...o,
+                        hopLength: Number(e.target.value),
+                      }))
+                    }
+                    className="mt-1 w-full bg-transparent text-sm outline-none"
+                  >
+                    {HOP_LENGTHS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-2">
+                  <span className="flex items-center justify-between text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                    Window
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen((h) => (h === "window" ? null : "window"))}
+                      className="h-5 w-5 rounded-full border border-[var(--ui-border)] text-[10px]"
+                    >
+                      i
+                    </button>
+                  </span>
+                  <select
+                    value={visualStftOptions.windowType}
+                    onChange={(e) =>
+                      setVisualStftOptions((o) => ({
+                        ...o,
+                        windowType: e.target.value as WindowType,
+                      }))
+                    }
+                    className="mt-1 w-full bg-transparent text-sm outline-none"
+                  >
+                    {WINDOW_TYPES.map((w) => (
+                      <option key={w.value} value={w.value}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {helpOpen && (
+                <p className="mt-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-xs text-[var(--ui-muted)]">
+                  {HELP_TEXT[helpOpen]}
+                </p>
+              )}
+            </section>
+          </aside>
+
+          <section className="flex min-h-0 flex-col gap-5">
+            <div className="min-h-0">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold">Waveform</h2>
+                  <InfoTip text="Shows amplitude over time. Taller spikes mean louder signal; flat areas are quiet." />
+                </div>
+                <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[var(--ui-muted)]">
+                  {spectrogramSource === "processed"
+                    ? "Processed signal"
+                    : "Original signal"}
+                </span>
+              </div>
+              <div className="h-[220px] overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-strong)]">
+                <WaveformCanvas
+                  samples={spectrogramSamples ?? audio.samples}
+                  width={1400}
+                  height={220}
+                  className="h-full w-full"
+                />
+              </div>
             </div>
-          </div>
-        </section>
 
-        {/* ─── Spectrogram settings ─── */}
-        <section className="mb-8">
-          <h2 className="mb-2 text-base font-medium text-zinc-800 dark:text-zinc-200">
-            Spectrogram settings
-          </h2>
-          <p className="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
-            These are visual-only STFT settings for the spectrogram. They do not affect playback processing.
-          </p>
-          <div className="flex flex-wrap gap-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <label className="flex flex-col gap-1">
-              <span className="flex items-center gap-1.5 text-xs text-zinc-500">
-                FFT size
-                <button
-                  type="button"
-                  onClick={() => setHelpOpen((h) => (h === "fftSize" ? null : "fftSize"))}
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-zinc-300 text-[10px] font-bold text-zinc-600 hover:bg-zinc-400 dark:bg-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-500"
-                  aria-label="Explain FFT size"
-                >
-                  i
-                </button>
-              </span>
-              <select
-                value={visualStftOptions.fftSize}
-                onChange={(e) =>
-                  setVisualStftOptions((o) => ({ ...o, fftSize: Number(e.target.value) }))
-                }
-                className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-              >
-                {FFT_SIZES.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="flex items-center gap-1.5 text-xs text-zinc-500">
-                Hop length
-                <button
-                  type="button"
-                  onClick={() => setHelpOpen((h) => (h === "hopLength" ? null : "hopLength"))}
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-zinc-300 text-[10px] font-bold text-zinc-600 hover:bg-zinc-400 dark:bg-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-500"
-                  aria-label="Explain hop length"
-                >
-                  i
-                </button>
-              </span>
-              <select
-                value={visualStftOptions.hopLength}
-                onChange={(e) =>
-                  setVisualStftOptions((o) => ({ ...o, hopLength: Number(e.target.value) }))
-                }
-                className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-              >
-                {HOP_LENGTHS.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="flex items-center gap-1.5 text-xs text-zinc-500">
-                Window
-                <button
-                  type="button"
-                  onClick={() => setHelpOpen((h) => (h === "window" ? null : "window"))}
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-zinc-300 text-[10px] font-bold text-zinc-600 hover:bg-zinc-400 dark:bg-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-500"
-                  aria-label="Explain window type"
-                >
-                  i
-                </button>
-              </span>
-              <select
-                value={visualStftOptions.windowType}
-                onChange={(e) =>
-                  setVisualStftOptions((o) => ({
-                    ...o,
-                    windowType: e.target.value as WindowType,
-                  }))
-                }
-                className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-              >
-                {WINDOW_TYPES.map((w) => (
-                  <option key={w.value} value={w.value}>{w.label}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {helpOpen && (
-            <p className="mt-3 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-              {HELP_TEXT[helpOpen]}
-            </p>
-          )}
-        </section>
-
-       
+            <div className="min-h-0">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold">Spectrogram</h2>
+                  <InfoTip text="Shows frequency over time. Bottom is low pitch, top is high pitch. Brighter colors mean stronger energy." />
+                </div>
+                <div className="inline-flex rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-strong)] p-1">
+                  <button
+                    type="button"
+                    onClick={() => setSpectrogramSource("original")}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                      spectrogramSource === "original"
+                        ? "bg-[var(--ui-accent)] text-white"
+                        : "text-[var(--ui-muted)] hover:text-[var(--ui-ink)]"
+                    }`}
+                  >
+                    Original
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSpectrogramSource("processed")}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                      spectrogramSource === "processed"
+                        ? "bg-[var(--ui-accent)] text-white"
+                        : "text-[var(--ui-muted)] hover:text-[var(--ui-ink)]"
+                    }`}
+                  >
+                    Processed
+                  </button>
+                </div>
+              </div>
+              <p className="mb-2 text-xs text-[var(--ui-muted)]">
+                Processed view = denoise (if enabled) + muffle slider. Bypass only affects playback.
+              </p>
+              <div className="h-[420px] overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-strong)]">
+                {dbFrames && dbFrames.length > 0 && (
+                  <SpectrogramCanvas
+                    dbFrames={dbFrames}
+                    sampleRate={audio.sampleRate}
+                    fftSize={visualStftOptions.fftSize}
+                    hopLength={visualStftOptions.hopLength}
+                    width={1400}
+                    height={420}
+                    className="h-full w-full"
+                  />
+                )}
+                {(!dbFrames || dbFrames.length === 0) && (
+                  <p className="px-3 py-2 text-xs text-[var(--ui-muted)]">
+                    Clip is too short for this FFT size. Try lower FFT size.
+                  </p>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-[var(--ui-muted)]">
+                Tip: use Chirp or Tone+Noise to see clearer time-frequency changes.
+              </p>
+            </div>
+          </section>
+        </div>
       </main>
     </div>
   );
@@ -631,4 +636,28 @@ function computeRms(samples: Float32Array): number {
     sum += x * x;
   }
   return Math.sqrt(sum / samples.length);
+}
+
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
+  const min = Math.floor(seconds / 60);
+  const sec = Math.floor(seconds % 60);
+  return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] text-[11px] text-[var(--ui-muted)]"
+        aria-label="Info"
+      >
+        i
+      </button>
+      <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 hidden w-64 -translate-x-1/2 rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-2 text-xs font-normal leading-relaxed text-[var(--ui-muted)] shadow-sm group-hover:block">
+        {text}
+      </span>
+    </span>
+  );
 }

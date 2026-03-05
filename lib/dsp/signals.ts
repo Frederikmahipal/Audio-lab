@@ -1,13 +1,9 @@
 /**
- * Synthetic test signals for reproducible experiments and debugging.
- * All at a given sample rate; output is peak-normalized to [-1, 1].
+ * Synthetic test signals for reproducible DSP demos.
+ * Output is peak-normalized to [-1, 1].
  */
 
-export type SignalType =
-  | "sine"
-  | "chirp"
-  | "tone_plus_noise"
-  | "am_tone";
+export type SignalType = "harmonic_sweep" | "step_pattern";
 
 function peakNormalize(samples: Float32Array): void {
   let max = 0;
@@ -20,130 +16,119 @@ function peakNormalize(samples: Float32Array): void {
   }
 }
 
-/** White noise in [-1, 1] using Math.random(). */
-function whiteNoise(length: number): Float32Array {
-  const out = new Float32Array(length);
-  for (let i = 0; i < length; i++) {
-    out[i] = 2 * Math.random() - 1;
+function fadeInOutGain(i: number, n: number, fadeSamples: number): number {
+  const f = Math.max(1, Math.min(fadeSamples, Math.floor(n / 2)));
+  if (i < f) {
+    return Math.sin((0.5 * Math.PI * i) / f);
   }
-  return out;
+  if (i > n - f - 1) {
+    const k = n - 1 - i;
+    return Math.sin((0.5 * Math.PI * k) / f);
+  }
+  return 1;
 }
 
-/** Sine tone at given frequency. */
-export function generateSineTone(
+function lcgNext(state: number): number {
+  return (1664525 * state + 1013904223) >>> 0;
+}
+
+/**
+ * Harmonic sweep:
+ * Fundamental glides up and harmonics follow it.
+ * Spectrogram shows multiple curved/diagonal bands.
+ */
+export function generateHarmonicSweep(
   sampleRate: number,
-  durationSeconds: number,
-  frequencyHz: number
+  durationSeconds: number
 ): Float32Array {
-  const n = Math.floor(sampleRate * durationSeconds);
+  const n = Math.max(1, Math.floor(sampleRate * durationSeconds));
   const out = new Float32Array(n);
-  const omega = (2 * Math.PI * frequencyHz) / sampleRate;
+  const fStart = 140;
+  const fEnd = 2400;
+  const fade = Math.floor(0.04 * sampleRate);
+  let phase = 0;
+
   for (let i = 0; i < n; i++) {
-    out[i] = Math.sin(omega * i);
+    const u = i / Math.max(1, n - 1);
+    const f0 = fStart * Math.pow(fEnd / fStart, u);
+    phase += (2 * Math.PI * f0) / sampleRate;
+
+    const h1 = Math.sin(phase);
+    const h2 = 0.56 * Math.sin(2 * phase);
+    const h3 = 0.34 * Math.sin(3 * phase);
+    const h4 = 0.2 * Math.sin(4 * phase);
+    const voiced = (h1 + h2 + h3 + h4) / 2.1;
+
+    const slowAm = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin((2 * Math.PI * 3.2 * i) / sampleRate));
+    out[i] = voiced * slowAm * fadeInOutGain(i, n, fade);
   }
+
   peakNormalize(out);
   return out;
 }
 
-/** Linear chirp from f0 to f1 over duration. */
-export function generateChirp(
+/**
+ * Step pattern:
+ * Harmonic notes in blocks + short broadband bursts at transitions.
+ * Spectrogram shows horizontal harmonic stacks and vertical transients.
+ */
+export function generateStepPattern(
   sampleRate: number,
-  durationSeconds: number,
-  f0Hz: number,
-  f1Hz: number
+  durationSeconds: number
 ): Float32Array {
-  const n = Math.floor(sampleRate * durationSeconds);
+  const n = Math.max(1, Math.floor(sampleRate * durationSeconds));
   const out = new Float32Array(n);
-  const k = (f1Hz - f0Hz) / durationSeconds;
+  const freqs = [180, 260, 360, 520, 700, 460, 320, 240];
+  const segments = freqs.length;
+  const fade = Math.floor(0.02 * sampleRate);
+  const burstLength = Math.max(1, Math.floor(0.018 * sampleRate));
+  let noiseState = 0x12345678;
+
   for (let i = 0; i < n; i++) {
-    const t = i / sampleRate;
-    const f = f0Hz + k * t;
-    const phase = 2 * Math.PI * (f0Hz * t + (k / 2) * t * t);
-    out[i] = Math.sin(phase);
+    const seg = Math.min(segments - 1, Math.floor((i / n) * segments));
+    const segStart = Math.floor((seg / segments) * n);
+    const segEnd = Math.floor(((seg + 1) / segments) * n);
+    const localN = Math.max(1, segEnd - segStart);
+    const localI = i - segStart;
+
+    const baseHz = freqs[seg];
+    const localU = localI / localN;
+    const f0 = baseHz + 70 * localU;
+    const phase = (2 * Math.PI * f0 * i) / sampleRate;
+    const note =
+      0.9 * Math.sin(phase) +
+      0.42 * Math.sin(2 * phase) +
+      0.2 * Math.sin(3 * phase);
+
+    const segEnv = Math.sin(Math.PI * localU);
+    const voiced = note * segEnv;
+
+    let burst = 0;
+    if (localI < burstLength || localN - localI < burstLength) {
+      noiseState = lcgNext(noiseState);
+      const w = (noiseState / 0xffffffff) * 2 - 1;
+      burst = 0.26 * w;
+    }
+
+    noiseState = lcgNext(noiseState);
+    const floorNoise = 0.018 * ((noiseState / 0xffffffff) * 2 - 1);
+
+    out[i] = (0.66 * voiced + burst + floorNoise) * fadeInOutGain(i, n, fade);
   }
+
   peakNormalize(out);
   return out;
 }
 
-/** Sine tone plus white noise. noiseLevel 0 = pure tone, 1 = tone and noise equal RMS before norm. */
-export function generateTonePlusNoise(
-  sampleRate: number,
-  durationSeconds: number,
-  frequencyHz: number,
-  noiseLevel: number
-): Float32Array {
-  const n = Math.floor(sampleRate * durationSeconds);
-  const tone = generateSineTone(sampleRate, durationSeconds, frequencyHz);
-  const noise = whiteNoise(n);
-  const out = new Float32Array(n);
-  const gTone = 1 - noiseLevel;
-  const gNoise = noiseLevel;
-  for (let i = 0; i < n; i++) {
-    out[i] = gTone * tone[i] + gNoise * noise[i];
-  }
-  peakNormalize(out);
-  return out;
-}
-
-/** Amplitude-modulated tone: carrier with modulator. x(t) = (1 + depth*sin(2π fm t)) * sin(2π fc t). */
-export function generateAmTone(
-  sampleRate: number,
-  durationSeconds: number,
-  carrierHz: number,
-  modFrequencyHz: number,
-  modDepth: number
-): Float32Array {
-  const n = Math.floor(sampleRate * durationSeconds);
-  const out = new Float32Array(n);
-  const omegaC = (2 * Math.PI * carrierHz) / sampleRate;
-  const omegaM = (2 * Math.PI * modFrequencyHz) / sampleRate;
-  for (let i = 0; i < n; i++) {
-    const envelope = 1 + modDepth * Math.sin(omegaM * i);
-    out[i] = envelope * Math.sin(omegaC * i);
-  }
-  peakNormalize(out);
-  return out;
-}
-
-/** Build signal from type and simple options (for UI). */
 export function buildTestSignal(
   type: SignalType,
   options: {
     sampleRate: number;
     durationSeconds: number;
-    frequencyHz?: number;
-    chirpStartHz?: number;
-    chirpEndHz?: number;
-    noiseLevel?: number;
-    modFrequencyHz?: number;
-    modDepth?: number;
   }
 ): Float32Array {
   const sr = options.sampleRate;
   const dur = options.durationSeconds;
-  const f = options.frequencyHz ?? 440;
-
-  switch (type) {
-    case "sine":
-      return generateSineTone(sr, dur, f);
-    case "chirp":
-      return generateChirp(
-        sr,
-        dur,
-        options.chirpStartHz ?? 200,
-        options.chirpEndHz ?? 4000
-      );
-    case "tone_plus_noise":
-      return generateTonePlusNoise(sr, dur, f, options.noiseLevel ?? 0.3);
-    case "am_tone":
-      return generateAmTone(
-        sr,
-        dur,
-        f,
-        options.modFrequencyHz ?? 5,
-        options.modDepth ?? 0.5
-      );
-    default:
-      return generateSineTone(sr, dur, f);
-  }
+  if (type === "step_pattern") return generateStepPattern(sr, dur);
+  return generateHarmonicSweep(sr, dur);
 }

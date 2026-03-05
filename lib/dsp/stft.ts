@@ -77,10 +77,6 @@ export function istft(
   const outLength = (numFrames - 1) * hopLength + fftSize;
   const out = new Float32Array(outLength);
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const FFT = require("fft.js");
-  const fft = new FFT(fftSize);
-
   for (let t = 0; t < numFrames; t++) {
     const spectrum = buildComplexFromMagnitudePhase(
       magnitudes[t],

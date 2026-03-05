@@ -52,7 +52,6 @@ export function AudioPlayer({
     try {
       oldSource.stop();
     } catch {
-      /* already stopped */
     }
     // Keep RAF running with updated refs.
 
@@ -259,7 +258,7 @@ export function AudioPlayer({
         <button
           type="button"
           onClick={togglePlay}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] text-[var(--ui-ink)] shadow-sm transition hover:border-[var(--ui-accent)] hover:text-[var(--ui-accent)]"
           aria-label={isPlaying ? "Pause" : "Play"}
         >
           {isPlaying ? (
@@ -274,7 +273,7 @@ export function AudioPlayer({
           )}
         </button>
         <div
-          className="relative h-2 flex-1 cursor-pointer rounded-full bg-zinc-200 dark:bg-zinc-700"
+          className="relative h-2.5 flex-1 cursor-pointer rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)]"
           onClick={handleSeek}
           role="slider"
           aria-label="Playback position"
@@ -296,12 +295,12 @@ export function AudioPlayer({
           }}
         >
           <div
-            className="absolute left-0 top-0 h-full rounded-full bg-zinc-600 dark:bg-zinc-400"
+            className="absolute left-0 top-0 h-full rounded-full bg-[linear-gradient(90deg,var(--ui-accent),var(--ui-accent-2))]"
             style={{ width: `${progress * 100}%` }}
           />
         </div>
       </div>
-      <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+      <div className="flex justify-between font-mono text-xs text-[var(--ui-muted)]">
         <span>{formatTime(currentTime)}</span>
         <span>{formatTime(effectiveDuration)}</span>
       </div>
