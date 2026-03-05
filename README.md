@@ -1,36 +1,232 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Audio Lab
 
-## Getting Started
+A Next.js web app for **signal processing on audio**: record or upload audio, view waveform and spectrogram, apply denoising and filtering, and (later) extract features like MFCC. Built for a course on signal processing for interactive systems.
 
-First, run the development server:
+---
+
+## What is signal processing (in this project)?
+
+The audio is a **list of numbers** (samples). **Signal processing** means we:
+
+- **Analyse** them — e.g. Short-Time Fourier Transform (STFT) → spectrogram (time vs frequency).
+- **Clean** them — e.g. estimate noise and subtract it (denoising).
+- **Change** them — e.g. cut high frequencies (low-pass filter) so the sound gets muffled.
+
+The course focuses on **analysis + noise reduction + feature extraction** for use with machine learning (e.g. MFCC for speech/music). This app implements the pipeline: get audio → visualise → denoise / filter → (later) export features.
+
+---
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Use **Record & Upload** to load audio, then **Analyze** to view and process it.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Pages
 
-## Learn More
+### `/` — Record & Upload (home)
 
-To learn more about Next.js, take a look at the following resources:
+- **Purpose:** Get audio into the app.
+- **Features:**
+  - **Upload audio (WAV/MP3):** File is decoded in the browser (Web Audio API), converted to mono, resampled to 16 kHz, and peak-normalised.
+  - **Record from mic:** Uses `MediaRecorder`; when you stop, the recording is decoded the same way as uploads.
+  - **Generate test signal:** Synthetic signals (sine, chirp, tone+noise, AM tone) at 16 kHz for reproducible experiments.
+- **After loading:** An **Open Analyze →** link appears; one click takes you to the analysis workspace with the same clip.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### `/analyze` — Analysis workspace
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Purpose:** Visualise and process the loaded clip.
+- **Playback:** **Play original**, **Play filtered (muffled)** (when High cut &gt; 0), **Play denoised** (when denoising is on).
+- **What is signal processing?** — Collapsible short explanation.
+- **High cut (low-pass filter):** Slider 0–100%. Cuts high frequencies so the sound gets muffled. Demonstrates “we are changing the signal.”
+- **Denoising:** Checkbox + “Noise from first (s)” + “Strength (α)”. Estimates noise from the first N seconds and applies spectral subtraction. Best when the start of the clip is noise-only (e.g. room tone).
+- **STFT controls:** FFT size (512 / 1024 / 2048), hop length (128 / 256 / 512), window (Hann / Hamming / Rectangular). These **only affect the spectrogram picture**, not the sound. Each has an **(i)** button with a short explanation.
+- **Waveform:** Amplitude over time (time-domain view).
+- **Spectrogram (STFT):** Time–frequency view (frequency vs time, brightness = energy). Updates when you change STFT parameters.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Project structure
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+app/
+  layout.tsx          # Root layout, metadata, wraps with ClientProviders
+  page.tsx            # Home: Record & Upload (server component, renders HomeClient)
+  analyze/
+    page.tsx          # Analysis workspace (client: playback, denoise, filter, STFT, waveform, spectrogram)
+
+components/
+  ClientProviders.tsx # Wraps app with AudioLabProvider (client)
+  HomeClient.tsx      # Home client block: AudioInput + TestSignalGenerator
+  AudioInput.tsx      # Upload button + Record from mic + status + link to Analyze
+  TestSignalGenerator.tsx  # Dropdown (signal type) + duration + Generate button
+  AudioPlayer.tsx     # Transport: play/pause, seek, progress; single Web Audio context
+  WaveformCanvas.tsx  # Canvas: draws waveform (amplitude vs time)
+  SpectrogramCanvas.tsx # Canvas: draws spectrogram from dB magnitude frames
+
+context/
+  AudioLabContext.tsx # React context: { audio, setAudio, clearAudio } (samples, sampleRate, durationSeconds)
+
+lib/
+  audio.ts            # Decode file/stream → mono float array, resample, normalise
+  dsp/
+    windows.ts        # Window functions (Hann, Hamming, rectangular)
+    fft.ts            # FFT: magnitude, magnitude+phase, build complex, inverse
+    stft.ts           # STFT (magnitude only), STFT complex (mag+phase), ISTFT, magnitudeToDb
+    denoise.ts        # Noise profile (median), spectral subtraction
+    filter.ts         # High-cut (low-pass) filter via STFT
+    signals.ts        # Synthetic signals: sine, chirp, tone+noise, AM tone, buildTestSignal
+```
+
+---
+
+## Features (by area)
+
+| Feature | Where | What it does |
+|--------|--------|----------------|
+| Upload WAV/MP3 | Home | Decode → mono, 16 kHz, peak normalise → store in context |
+| Record from mic | Home | `getUserMedia` + `MediaRecorder` → blob → same decode path |
+| Generate test signal | Home | Sine / chirp / tone+noise / AM at 16 kHz → store in context |
+| Play original / filtered / denoised | Analyze | Web Audio `AudioBuffer` + `BufferSource` for each variant |
+| High cut slider | Analyze | Low-pass filter: zero high bins in STFT → ISTFT → muffled sound |
+| Denoising | Analyze | Noise profile from first N s → spectral subtraction → ISTFT |
+| STFT controls | Analyze | Change FFT size, hop, window → spectrogram and frame count update |
+| Waveform | Analyze | Time-domain amplitude plot |
+| Spectrogram | Analyze | STFT magnitude in dB, time vs frequency |
+
+---
+
+## Signal processing: modules and functions
+
+### `lib/audio.ts`
+
+- **`decodeAudioToMono(arrayBuffer, targetSampleRate?)`**  
+  Decodes an audio file (WAV, MP3, etc.) in the browser via `AudioContext.decodeAudioData`. Converts to mono (average of channels), resamples to `targetSampleRate` (default 16 kHz) with linear interpolation, and peak-normalises to [-1, 1]. Returns `{ samples, sampleRate, durationSeconds }`. Must run in the browser (uses Web Audio).
+
+- **`resample(input, fromRate, toRate)`** (internal)  
+  Linear interpolation resampling.
+
+---
+
+### `lib/dsp/windows.ts`
+
+- **`createWindow(type, size)`**  
+  Returns a `Float32Array` of length `size`: **Hann**, **Hamming**, or **rect** (rectangular, all ones). Used to window each frame before the FFT to reduce spectral leakage.
+
+---
+
+### `lib/dsp/fft.ts`
+
+Uses the `fft.js` library (real FFT).
+
+- **`fftMagnitude(realInput)`**  
+  Real FFT → magnitude only (positive frequencies). Used for spectrogram.
+
+- **`fftMagnitudeAndPhase(realInput)`**  
+  Real FFT → `{ magnitude, phase }` (positive frequencies). Used for denoise/filter (we need phase to reconstruct).
+
+- **`buildComplexFromMagnitudePhase(magnitude, phase, size)`**  
+  Builds the full complex spectrum (interleaved real/imag) from magnitude and phase, and fills negative frequencies via conjugate symmetry. Used before inverse FFT.
+
+- **`inverseReal(complexSpectrum, size)`**  
+  Inverse FFT of a full complex spectrum → real time-domain signal (extracts real part). Used in ISTFT.
+
+---
+
+### `lib/dsp/stft.ts`
+
+- **`stft(signal, options)`**  
+  Short-Time Fourier Transform: windows the signal with given `fftSize`, `hopLength`, `windowType`; for each frame computes FFT magnitude only. Returns an array of `Float32Array` (one per frame), each of length `fftSize/2 + 1`. Used for the spectrogram.
+
+- **`stftComplex(signal, options)`**  
+  Same as STFT but keeps magnitude and phase per frame. Returns `{ magnitudes, phases }`. Used for denoising and filtering (modify magnitude, keep phase, then invert).
+
+- **`istft(magnitudes, phases, options)`**  
+  Inverse STFT: for each frame builds complex spectrum from magnitude and phase, inverse FFT, applies the same window, overlap-adds into a time-domain signal. Normalises by overlap. Used to get back a playable signal after denoise/filter.
+
+- **`magnitudeToDb(frames, eps?)`**  
+  Converts each magnitude frame to dB: `20*log10(max(magnitude, eps))`. Used for spectrogram display (so we see log scale).
+
+---
+
+### `lib/dsp/denoise.ts`
+
+- **`estimateNoiseProfile(magnitudeFrames, noiseFrames)`**  
+  Computes a noise spectrum by taking the **median** magnitude per frequency bin over the first `noiseFrames` frames. Assumes those frames are “noise only.”
+
+- **`spectralSubtraction(magnitudeFrames, noiseProfile, alpha?, floorFrac?)`**  
+  For each frame and each bin: `newMagnitude = max(magnitude - alpha*noiseProfile, floorFrac*noiseProfile)`. Defaults: `alpha = 1.2`, `floorFrac = 0.01`. Returns modified magnitude frames (phase is kept elsewhere for ISTFT).
+
+---
+
+### `lib/dsp/filter.ts`
+
+- **`highCutFilter(samples, sampleRate, stftOptions, cutFrac)`**  
+  Applies a low-pass (high-cut) filter in the frequency domain: runs `stftComplex`, zeros out high-frequency bins (keeps the lowest `(1 - cutFrac*0.9)` fraction of bins), then `istft`. `cutFrac` 0 = no change; 1 = very muffled. Output is peak-normalised. Used for the “High cut” slider so you clearly hear the effect of processing.
+
+---
+
+### `lib/dsp/signals.ts`
+
+Synthetic test signals (all peak-normalised to [-1, 1], fixed sample rate).
+
+- **`generateSineTone(sampleRate, durationSeconds, frequencyHz)`**  
+  Pure sine at the given frequency.
+
+- **`generateChirp(sampleRate, durationSeconds, f0Hz, f1Hz)`**  
+  Linear frequency sweep from `f0Hz` to `f1Hz` over the duration.
+
+- **`generateTonePlusNoise(sampleRate, durationSeconds, frequencyHz, noiseLevel)`**  
+  Sine tone plus white noise. `noiseLevel` 0 = pure tone; 1 = equal mix (before normalisation).
+
+- **`generateAmTone(sampleRate, durationSeconds, carrierHz, modFrequencyHz, modDepth)`**  
+  Amplitude modulation: `(1 + modDepth*sin(2π fm t)) * sin(2π fc t)`.
+
+- **`buildTestSignal(type, options)`**  
+  Dispatcher for the UI: given `sine` | `chirp` | `tone_plus_noise` | `am_tone` and options (sample rate, duration, frequencies, etc.), returns the corresponding `Float32Array`.
+
+---
+
+## Context: `AudioLabContext`
+
+- **State:** `audio: { samples, sampleRate, durationSeconds } | null`.
+- **Actions:** `setAudio(state)`, `clearAudio()`.
+- **Usage:** The home page (upload / record / generate) calls `setAudio`; the analyze page reads `audio` and derives waveform, spectrogram, denoised and filtered signals from it. All processing is client-side; no backend.
+
+---
+
+## Signal processing summary (for the report)
+
+| Concept | Where in the app |
+|--------|-------------------|
+| **Sampling / resampling** | `lib/audio.ts`: everything is resampled to 16 kHz. |
+| **Windowing** | `windows.ts`: Hann, Hamming, rectangular; applied per frame in STFT. |
+| **Fourier transform** | `fft.ts`: real FFT for magnitude (and magnitude+phase for reconstruction). |
+| **STFT / spectrogram** | `stft.ts`: frame-based FFT, magnitude to dB for display. |
+| **Noise estimation** | `denoise.ts`: median over first N frames. |
+| **Spectral subtraction** | `denoise.ts`: subtract estimated noise with floor. |
+| **Filtering** | `filter.ts`: high-cut (low-pass) by zeroing high bins in STFT domain. |
+| **Synthetic signals** | `signals.ts`: sine, chirp, tone+noise, AM (for reproducible experiments). |
+
+---
+
+## Tech stack
+
+- **Next.js 16** (App Router), **React 19**, **TypeScript**, **Tailwind CSS**
+- **fft.js** for FFT / inverse FFT
+- **Web Audio API** for decode and playback; **MediaRecorder** for mic recording
+- All DSP runs in the browser (no API routes for audio)
+
+---
+
+## Possible next steps (course / project)
+
+- MFCC (and optionally MFE) extraction → feature table + Export CSV
+- “Add noise” panel: mix in a noise file at a chosen SNR for evaluation
+- Metrics: MFCC stability vs SNR, speech-band energy ratio, runtime
+- Optional: small classifier (e.g. speech vs music) using exported features
