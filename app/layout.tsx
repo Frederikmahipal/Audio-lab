@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ClientProviders } from "@/components/ClientProviders";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
   title: "Audio Lab",
@@ -14,6 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <Analytics />
       <body className="antialiased">
         <ClientProviders>{children}</ClientProviders>
       </body>

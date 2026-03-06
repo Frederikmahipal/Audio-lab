@@ -24,3 +24,5 @@ export function createWindow(type: WindowType, size: number): Float32Array {
   }
   return w;
 }
+
+
