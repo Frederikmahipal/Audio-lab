@@ -221,6 +221,5 @@ Synthetic test signals (peak-normalised to [-1, 1], fixed sample rate).
 ## Possible next steps (course / project)
 
 - MFCC (and optionally MFE) extraction → feature table + Export CSV
-- “Add noise” panel: mix in a noise file at a chosen SNR for evaluation
 - Metrics: MFCC stability vs SNR, speech-band energy ratio, runtime
 - Optional: small classifier (e.g. speech vs music) using exported features
