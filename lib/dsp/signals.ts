@@ -1,10 +1,10 @@
 /**
- * Synthetic test signals for reproducible DSP demos.
- * Output is peak-normalized to [-1, 1].
+ * Synthetic signals used to make waveform and spectrogram behavior easy to see.
  */
 
 export type SignalType = "harmonic_sweep" | "step_pattern";
 
+/** Scale the whole signal so its loudest sample is at 1. */
 function peakNormalize(samples: Float32Array): void {
   let max = 0;
   for (let i = 0; i < samples.length; i++) {
@@ -16,6 +16,7 @@ function peakNormalize(samples: Float32Array): void {
   }
 }
 
+/** Fade the signal in and out so it starts and ends cleanly. */
 function fadeInOutGain(i: number, n: number, fadeSamples: number): number {
   const f = Math.max(1, Math.min(fadeSamples, Math.floor(n / 2)));
   if (i < f) {
@@ -28,6 +29,7 @@ function fadeInOutGain(i: number, n: number, fadeSamples: number): number {
   return 1;
 }
 
+/** Tiny deterministic random generator for repeatable noise bursts. */
 function lcgNext(state: number): number {
   return (1664525 * state + 1013904223) >>> 0;
 }
@@ -49,16 +51,19 @@ export function generateHarmonicSweep(
   let phase = 0;
 
   for (let i = 0; i < n; i++) {
+    // Exponential glide gives a smooth rising pitch.
     const u = i / Math.max(1, n - 1);
     const f0 = fStart * Math.pow(fEnd / fStart, u);
     phase += (2 * Math.PI * f0) / sampleRate;
 
+    // Add harmonics so the spectrogram shows several clear bands.
     const h1 = Math.sin(phase);
     const h2 = 0.56 * Math.sin(2 * phase);
     const h3 = 0.34 * Math.sin(3 * phase);
     const h4 = 0.2 * Math.sin(4 * phase);
     const voiced = (h1 + h2 + h3 + h4) / 2.1;
 
+    // Slow amplitude movement keeps the signal visually interesting.
     const slowAm = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin((2 * Math.PI * 3.2 * i) / sampleRate));
     out[i] = voiced * slowAm * fadeInOutGain(i, n, fade);
   }
@@ -85,6 +90,7 @@ export function generateStepPattern(
   let noiseState = 0x12345678;
 
   for (let i = 0; i < n; i++) {
+    // Split the clip into note-like blocks with different base pitches.
     const seg = Math.min(segments - 1, Math.floor((i / n) * segments));
     const segStart = Math.floor((seg / segments) * n);
     const segEnd = Math.floor(((seg + 1) / segments) * n);
@@ -105,11 +111,13 @@ export function generateStepPattern(
 
     let burst = 0;
     if (localI < burstLength || localN - localI < burstLength) {
+      // Add short noisy transitions so the spectrogram gets vertical accents.
       noiseState = lcgNext(noiseState);
       const w = (noiseState / 0xffffffff) * 2 - 1;
       burst = 0.26 * w;
     }
 
+    // Low background noise stops the signal from looking unrealistically perfect.
     noiseState = lcgNext(noiseState);
     const floorNoise = 0.018 * ((noiseState / 0xffffffff) * 2 - 1);
 
@@ -120,6 +128,7 @@ export function generateStepPattern(
   return out;
 }
 
+/** Small dispatcher used by the UI signal generator. */
 export function buildTestSignal(
   type: SignalType,
   options: {

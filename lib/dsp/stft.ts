@@ -1,7 +1,6 @@
 /**
- * Short-time Fourier transform.
- * Returns array of magnitude spectra (each Float32Array of length fftSize/2 + 1).
- * stftComplex + istft for denoise (need phase for reconstruction).
+ * STFT utilities.
+ * This is the main time-frequency analysis layer used by the app.
  */
 
 import { createWindow, type WindowType } from "./windows";
@@ -18,6 +17,7 @@ export interface STFTOptions {
   windowType: WindowType;
 }
 
+/** Split the signal into overlapping frames and keep only magnitude per frame. */
 export function stft(
   signal: Float32Array,
   options: STFTOptions
@@ -27,7 +27,9 @@ export function stft(
   const frames: Float32Array[] = [];
   const frameBuffer = new Float32Array(fftSize);
 
+  // Walk through the signal in hops and analyze one frame at a time.
   for (let start = 0; start + fftSize <= signal.length; start += hopLength) {
+    // Windowing reduces edge artifacts before FFT.
     for (let i = 0; i < fftSize; i++) {
       frameBuffer[i] = signal[start + i] * window[i];
     }
@@ -43,6 +45,7 @@ export interface STFTComplexResult {
   phases: Float32Array[];
 }
 
+/** Same STFT as above, but keep phase so the signal can be reconstructed later. */
 export function stftComplex(
   signal: Float32Array,
   options: STFTOptions
@@ -57,6 +60,8 @@ export function stftComplex(
     for (let i = 0; i < fftSize; i++) {
       frameBuffer[i] = signal[start + i] * window[i];
     }
+
+    // Magnitude is what we modify; phase helps us rebuild the waveform.
     const { magnitude, phase } = fftMagnitudeAndPhase(frameBuffer);
     magnitudes.push(new Float32Array(magnitude));
     phases.push(new Float32Array(phase));
@@ -65,7 +70,7 @@ export function stftComplex(
   return { magnitudes, phases };
 }
 
-/** Overlap-add inverse STFT. Uses same window and hop. */
+/** Rebuild a time signal from processed STFT frames using overlap-add. */
 export function istft(
   magnitudes: Float32Array[],
   phases: Float32Array[],
@@ -78,6 +83,7 @@ export function istft(
   const out = new Float32Array(outLength);
 
   for (let t = 0; t < numFrames; t++) {
+    // Turn one processed spectrum back into one time-domain frame.
     const spectrum = buildComplexFromMagnitudePhase(
       magnitudes[t],
       phases[t],
@@ -85,12 +91,14 @@ export function istft(
     );
     const frame = inverseReal(spectrum, fftSize);
     const start = t * hopLength;
+
+    // Overlap-add places each reconstructed frame back into the output signal.
     for (let i = 0; i < fftSize; i++) {
       out[start + i] += frame[i] * window[i];
     }
   }
 
-  // Normalize by overlap (approximate for arbitrary hop/window)
+  // Normalize so overlap regions do not get artificially louder.
   const maxOverlap = Math.ceil(fftSize / hopLength);
   let norm = 0;
   for (let i = 0; i < fftSize; i++) norm += window[i] * window[i];
@@ -101,10 +109,7 @@ export function istft(
   return out;
 }
 
-/**
- * Convert magnitude spectra to dB (for spectrogram display).
- * In-place optional; returns new array by default.
- */
+/** Convert linear magnitudes to dB so the spectrogram is easier to read. */
 export function magnitudeToDb(
   frames: Float32Array[],
   eps = 1e-10

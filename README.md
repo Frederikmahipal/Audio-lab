@@ -1,6 +1,8 @@
 # Audio Lab
 
-A Next.js web app for **signal processing on audio**: record or upload audio, view waveform and spectrogram, apply denoising and filtering, and (later) extract features like MFCC. Built for a course on signal processing for interactive systems.
+For a full Danish walkthrough of the app, DSP pipeline, `lib/` files, features, and course-objective mapping, see [README.da.md](./README.da.md).
+
+A Next.js web app for **signal processing on audio**: record or upload audio, view waveform and spectrogram, apply denoising and filtering, and extract compact audio features for later machine learning. Built for a course on signal processing for interactive systems.
 
 ---
 
@@ -12,7 +14,7 @@ The audio is a **list of numbers** (samples). **Signal processing** means we:
 - **Clean** them — e.g. estimate noise and subtract it (denoising).
 - **Change** them — e.g. cut high frequencies (low-pass filter) so the sound gets muffled.
 
-The course focuses on **analysis + noise reduction + feature extraction** for use with machine learning (e.g. MFCC for speech/music). This app implements the pipeline: get audio → visualise → denoise / filter → (later) export features.
+The course focuses on **analysis + noise reduction + feature extraction** for use with machine learning (e.g. MFCC for speech/music). This app implements the pipeline: get audio → visualise → denoise / filter → extract log-mel features → export features.
 
 ---
 
@@ -24,6 +26,16 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). Use **Record & Upload** to load audio, then **Analyze** to view and process it.
+
+### Optional: Edge Impulse upload
+
+To send extracted MFE samples directly to Edge Impulse from the Analyze page, add a project API key to `.env.local`:
+
+```bash
+EDGE_IMPULSE_API_KEY=your_edge_impulse_project_api_key
+```
+
+The app will then upload one EI-compatible CSV sample per clip through the built-in server route.
 
 ---
 
@@ -40,14 +52,14 @@ Open [http://localhost:3000](http://localhost:3000). Use **Record & Upload** to 
 
 ### `/analyze` — Analysis workspace
 
-- **Purpose:** Visualise and process the loaded clip.
-- **Playback:** **Play original**, **Play filtered (muffled)** (when High cut &gt; 0), **Play denoised** (when denoising is on).
-- **What is signal processing?** — Collapsible short explanation.
-- **High cut (low-pass filter):** Slider 0–100%. Cuts high frequencies so the sound gets muffled. Demonstrates “we are changing the signal.”
-- **Denoising:** Checkbox + “Noise from first (s)” + “Strength (α)”. Estimates noise from the first N seconds and applies spectral subtraction. Best when the start of the clip is noise-only (e.g. room tone).
-- **STFT controls:** FFT size (512 / 1024 / 2048), hop length (128 / 256 / 512), window (Hann / Hamming / Rectangular). These **only affect the spectrogram picture**, not the sound. Each has an **(i)** button with a short explanation.
+- **Purpose:** Visualise, process, and extract features from the loaded clip.
+- **Playback:** One realtime player with optional **Bypass processing** and **Loudness match** for A/B listening.
+- **High cut (low-pass filter):** Slider 0–100%. Cuts high frequencies so the sound gets muffled.
+- **Denoising:** Checkbox + “Noise (s)” + “Strength (a)”. Estimates noise from the first N seconds and applies spectral subtraction.
+- **STFT controls:** FFT size (512 / 1024 / 2048), hop length (128 / 256 / 512), window (Hann / Hamming / Rectangular). These affect the analysis views.
 - **Waveform:** Amplitude over time (time-domain view).
-- **Spectrogram (STFT):** Time–frequency view (frequency vs time, brightness = energy). Updates when you change STFT parameters.
+- **Spectrogram (STFT):** Time–frequency view (frequency vs time, brightness = energy).
+- **MFE Features:** 32-band log-mel filterbank energies derived from the STFT, shown as a compact feature matrix and exportable as CSV.
 
 ---
 
@@ -58,7 +70,7 @@ app/
   layout.tsx          # Root layout, metadata, wraps with ClientProviders
   page.tsx            # Home: Record & Upload (server component, renders HomeClient)
   analyze/
-    page.tsx          # Analysis workspace (client: playback, denoise, filter, STFT, waveform, spectrogram)
+    page.tsx          # Analysis workspace (client: playback, denoise, filter, STFT, waveform, spectrogram, MFE)
 
 components/
   ClientProviders.tsx # Wraps app with AudioLabProvider (client)
@@ -80,6 +92,7 @@ lib/
     stft.ts           # STFT (magnitude only), STFT complex (mag+phase), ISTFT, magnitudeToDb
     denoise.ts        # Noise profile (median), spectral subtraction
     filter.ts         # High-cut (low-pass) filter via STFT
+    features.ts       # Log-mel filterbank energy (MFE) extraction and mel filterbank creation
     signals.ts        # Synthetic demo signals: harmonic_sweep, step_pattern, buildTestSignal
 ```
 
@@ -92,12 +105,13 @@ lib/
 | Upload WAV/MP3 | Home | Decode → mono, 16 kHz, peak normalise → store in context |
 | Record from mic | Home | `getUserMedia` + `MediaRecorder` → blob → same decode path |
 | Generate test signal | Home | Harmonic sweep / step pattern at 16 kHz → store in context |
-| Play original / filtered / denoised | Analyze | Web Audio `AudioBuffer` + `BufferSource` for each variant |
-| High cut slider | Analyze | Low-pass filter: zero high bins in STFT → ISTFT → muffled sound |
+| Playback compare | Analyze | One realtime player with optional bypass and loudness match |
+| High cut slider | Analyze | Realtime low-pass preview for playback plus STFT-domain processed analysis view |
 | Denoising | Analyze | Noise profile from first N s → spectral subtraction → ISTFT |
 | STFT controls | Analyze | Change FFT size, hop, window → spectrogram and frame count update |
 | Waveform | Analyze | Time-domain amplitude plot |
 | Spectrogram | Analyze | STFT magnitude in dB, time vs frequency |
+| MFE extraction | Analyze | 32 log-mel filterbank energies per frame + CSV export |
 
 ---
 
@@ -171,6 +185,13 @@ Uses the `fft.js` library (real FFT).
 
 ---
 
+### `lib/dsp/features.ts`
+
+- **`extractLogMelFeatures(magnitudeFrames, sampleRate, fftSize, options?)`**  
+  Converts STFT magnitude frames into **log-mel filterbank energies (MFE)**. The FFT bins are grouped into mel-spaced triangular bands, energy is summed per band, then converted to dB. Returns `{ dbFrames, centerHz, numBands }` for display or export.
+
+---
+
 ### `lib/dsp/signals.ts`
 
 Synthetic test signals (peak-normalised to [-1, 1], fixed sample rate).
@@ -205,6 +226,7 @@ Synthetic test signals (peak-normalised to [-1, 1], fixed sample rate).
 | **Noise estimation** | `denoise.ts`: median over first N frames. |
 | **Spectral subtraction** | `denoise.ts`: subtract estimated noise with floor. |
 | **Filtering** | `filter.ts`: high-cut (low-pass) by zeroing high bins in STFT domain. |
+| **Feature extraction (MFE)** | `features.ts`: compress STFT bins into 32 mel bands and export per-frame log energies. |
 | **Synthetic signals** | `signals.ts`: harmonic_sweep and step_pattern (for clear DSP demos). |
 
 ---
@@ -220,6 +242,6 @@ Synthetic test signals (peak-normalised to [-1, 1], fixed sample rate).
 
 ## Possible next steps (course / project)
 
-- MFCC (and optionally MFE) extraction → feature table + Export CSV
-- Metrics: MFCC stability vs SNR, speech-band energy ratio, runtime
-- Optional: small classifier (e.g. speech vs music) using exported features
+- MFCC on top of the current MFE pipeline → cepstral coefficients + compare against raw MFE
+- Metrics: feature stability vs SNR, speech-band energy ratio, runtime
+- Optional: small classifier (e.g. speech vs music) using exported feature CSV

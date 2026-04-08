@@ -17,6 +17,7 @@ import {
 import type { WindowType } from "@/lib/dsp/windows";
 import { estimateNoiseProfile, spectralSubtraction } from "@/lib/dsp/denoise";
 import { highCutFilter } from "@/lib/dsp/filter";
+import { extractLogMelFeatures } from "@/lib/dsp/features";
 
 const FFT_SIZES = [512, 1024, 2048] as const;
 const HOP_LENGTHS = [128, 256, 512] as const;
@@ -37,6 +38,7 @@ const DEFAULT_PROCESSING_STFT: STFTOptions = {
   windowType: "hann",
 };
 const DENOISE_DEBOUNCE_MS = 220;
+const MEL_BAND_COUNT = 32;
 
 type HelpKey = "fftSize" | "hopLength" | "window" | null;
 
@@ -60,6 +62,12 @@ export default function AnalyzePage() {
   const [highCutFrac, setHighCutFrac] = useState(0);
   const [bypassProcessing, setBypassProcessing] = useState(false);
   const [loudnessMatch, setLoudnessMatch] = useState(true);
+  const [eiLabel, setEiLabel] = useState("speech");
+  const [eiCategory, setEiCategory] = useState<"training" | "testing">(
+    "training"
+  );
+  const [isEiUploading, setIsEiUploading] = useState(false);
+  const [eiUploadMessage, setEiUploadMessage] = useState<string | null>(null);
   const [denoisedResult, setDenoisedResult] = useState<{
     source: Float32Array;
     samples: Float32Array;
@@ -104,6 +112,45 @@ export default function AnalyzePage() {
     if (!stftFrames?.length) return null;
     return magnitudeToDb(stftFrames);
   }, [stftFrames]);
+
+  const logMelResult = useMemo(() => {
+    if (!stftFrames?.length || !audio?.sampleRate) return null;
+    return extractLogMelFeatures(
+      stftFrames,
+      audio.sampleRate,
+      visualStftOptions.fftSize,
+      {
+        numBands: MEL_BAND_COUNT,
+        minHz: 40,
+        maxHz: Math.min(audio.sampleRate / 2, 7600),
+      }
+    );
+  }, [stftFrames, audio?.sampleRate, visualStftOptions.fftSize]);
+
+  const meanLogMelBands = useMemo(() => {
+    if (!logMelResult?.dbFrames.length) return null;
+    return computeMeanBands(logMelResult.dbFrames);
+  }, [logMelResult]);
+
+  const strongestMelBand = useMemo(() => {
+    if (!logMelResult || !meanLogMelBands?.length) return null;
+    let bestIndex = 0;
+    for (let i = 1; i < meanLogMelBands.length; i++) {
+      if ((meanLogMelBands[i] ?? -Infinity) > (meanLogMelBands[bestIndex] ?? -Infinity)) {
+        bestIndex = i;
+      }
+    }
+    return {
+      index: bestIndex,
+      hz: logMelResult.centerHz[bestIndex] ?? 0,
+      db: meanLogMelBands[bestIndex] ?? 0,
+    };
+  }, [logMelResult, meanLogMelBands]);
+
+  const meanLogMelBandPreview = useMemo(() => {
+    if (!meanLogMelBands?.length) return [];
+    return normalizeVector(meanLogMelBands);
+  }, [meanLogMelBands]);
 
   useEffect(() => {
     if (!audio?.samples.length || !applyDenoise) return;
@@ -199,6 +246,76 @@ export default function AnalyzePage() {
   function handleDenoiseAlphaChange(value: number) {
     setDenoiseAlpha(value);
     if (applyDenoise) setIsDenoiseProcessing(true);
+  }
+
+  function handleDownloadMfeCsv() {
+    if (!logMelResult?.dbFrames.length) return;
+
+    const csv = buildEdgeImpulseCsv(
+      logMelResult.dbFrames,
+      visualStftOptions.hopLength,
+      audio.sampleRate
+    );
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = buildEdgeImpulseFileName(eiLabel);
+    anchor.click();
+    URL.revokeObjectURL(href);
+  }
+
+  async function handleSendToEdgeImpulse() {
+    if (!logMelResult?.dbFrames.length || !audio?.sampleRate) return;
+
+    const label = sanitizeLabel(eiLabel);
+    if (!label) {
+      setEiUploadMessage("Add a label before sending to Edge Impulse.");
+      return;
+    }
+
+    setIsEiUploading(true);
+    setEiUploadMessage(null);
+
+    try {
+      const csv = buildEdgeImpulseCsv(
+        logMelResult.dbFrames,
+        visualStftOptions.hopLength,
+        audio.sampleRate
+      );
+      const fileName = buildEdgeImpulseFileName(label);
+      const response = await fetch("/api/edge-impulse/upload", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          category: eiCategory,
+          csv,
+          fileName,
+          label,
+        }),
+      });
+
+      const result = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Edge Impulse upload failed.");
+      }
+
+      setEiUploadMessage(
+        `Sent ${fileName} to Edge Impulse ${eiCategory} data.`
+      );
+    } catch (error) {
+      setEiUploadMessage(
+        error instanceof Error ? error.message : "Unknown upload error."
+      );
+    } finally {
+      setIsEiUploading(false);
+    }
   }
 
   if (!audio) {
@@ -509,7 +626,7 @@ export default function AnalyzePage() {
               </p>
             </div>
 
-            <div className="min-h-0">
+            <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4">
               <div className="mb-3 flex items-center gap-2">
                 <h2 className="text-lg font-semibold">Waveform</h2>
                 <InfoTip text="Shows amplitude over time. Taller spikes mean louder signal; flat areas are quiet." />
@@ -524,7 +641,7 @@ export default function AnalyzePage() {
               </div>
             </div>
 
-            <div className="min-h-0">
+            <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4">
               <div className="mb-3 flex items-center gap-2">
                 <h2 className="text-lg font-semibold">Spectrogram</h2>
                 <InfoTip text="Shows frequency over time. Bottom is low pitch, top is high pitch. Brighter colors mean stronger energy." />
@@ -547,12 +664,172 @@ export default function AnalyzePage() {
                   </p>
                 )}
               </div>
-              <p className="mt-2 text-xs text-[var(--ui-muted)]">
+              <p className="mt-3 text-xs text-[var(--ui-muted)]">
                 The analysis view reflects the active preprocessing and enhancement
                 steps. Bypass only affects playback so you can still A/B listen.
               </p>
               <p className="mt-2 text-xs text-[var(--ui-muted)]">
                 Tip: use Harmonic sweep or Step pattern to see clearer time-frequency changes.
+              </p>
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="text-lg font-semibold">MFE Features</h2>
+                <InfoTip text="MFE means log-mel filterbank energies. Each frame is compressed from many FFT bins into 32 perceptual bands, which is a compact feature vector for later machine learning." />
+              </div>
+              <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-strong)] p-3 sm:p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.1em]">
+                    <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-1.5 text-[var(--ui-muted)]">
+                      {logMelResult?.dbFrames.length ?? 0} frames
+                    </span>
+                    <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-1.5 text-[var(--ui-muted)]">
+                      {logMelResult?.numBands ?? 0} mel bands
+                    </span>
+                    <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-1.5 text-[var(--ui-muted)]">
+                      {stftFrames?.[0]?.length ?? 0} FFT bins to 32 features
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadMfeCsv}
+                    disabled={!logMelResult?.dbFrames.length}
+                    className="rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3.5 py-2 text-sm font-semibold text-[var(--ui-ink)] transition hover:bg-[var(--ui-surface-muted)] disabled:opacity-45"
+                  >
+                    Download EI CSV
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-[var(--ui-muted)]">
+                  This is the first real feature-extraction step in the project: the
+                  STFT is grouped into mel-spaced bands, converted to log energy, and
+                  exported frame by frame for ML-ready analysis.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px_220px]">
+                  <label className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2.5">
+                    <span className="block text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Edge Impulse label
+                    </span>
+                    <input
+                      type="text"
+                      value={eiLabel}
+                      onChange={(e) => setEiLabel(e.target.value)}
+                      placeholder="speech"
+                      className="mt-1 w-full bg-transparent text-sm outline-none"
+                    />
+                  </label>
+                  <label className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2.5">
+                    <span className="block text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Dataset split
+                    </span>
+                    <select
+                      value={eiCategory}
+                      onChange={(e) =>
+                        setEiCategory(
+                          e.target.value === "testing" ? "testing" : "training"
+                        )
+                      }
+                      className="mt-1 w-full bg-transparent text-sm outline-none"
+                    >
+                      <option value="training">Training</option>
+                      <option value="testing">Testing</option>
+                    </select>
+                  </label>
+                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2.5">
+                    <span className="block text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Edge Impulse
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleSendToEdgeImpulse}
+                      disabled={!logMelResult?.dbFrames.length || isEiUploading}
+                      className="mt-1 w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-strong)] px-3.5 py-2 text-sm font-semibold text-[var(--ui-ink)] transition hover:bg-[var(--ui-surface-muted)] disabled:opacity-45"
+                    >
+                      {isEiUploading ? "Sending..." : "Send to Edge Impulse"}
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-[var(--ui-muted)]">
+                  The app keeps doing preprocessing and MFE extraction locally, then
+                  sends one EI-compatible CSV sample per clip to the selected dataset
+                  split.
+                </p>
+                {eiUploadMessage && (
+                  <p className="mt-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-xs text-[var(--ui-muted)]">
+                    {eiUploadMessage}
+                  </p>
+                )}
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2.5">
+                    <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Frame size
+                    </p>
+                    <p className="mt-1 text-lg font-semibold">
+                      {logMelResult?.numBands ?? 0}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--ui-muted)]">
+                      values per frame
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2.5">
+                    <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Strongest band
+                    </p>
+                    <p className="mt-1 text-lg font-semibold">
+                      {strongestMelBand ? `${Math.round(strongestMelBand.hz)} Hz` : "n/a"}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--ui-muted)]">
+                      mean log energy peak
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2.5">
+                    <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Mean level
+                    </p>
+                    <p className="mt-1 text-lg font-semibold">
+                      {meanLogMelBands
+                        ? `${computeVectorMean(meanLogMelBands).toFixed(1)} dB`
+                        : "n/a"}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--ui-muted)]">
+                      across mel bands
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--ui-muted)]">
+                      Mean Band Profile
+                    </p>
+                    <p className="text-xs text-[var(--ui-muted)]">
+                      32 normalized mel-band means
+                    </p>
+                  </div>
+                  <div className="mt-3 flex h-20 items-end gap-1">
+                    {meanLogMelBandPreview.length > 0 ? (
+                      meanLogMelBandPreview.map((value, index) => (
+                        <div
+                          key={index}
+                          className="flex-1 rounded-t-sm bg-[linear-gradient(180deg,var(--ui-accent-2),var(--ui-accent))]"
+                          style={{ height: `${Math.max(8, value * 100)}%` }}
+                          title={`Band ${index + 1}: ${meanLogMelBands?.[index]?.toFixed(1) ?? "0.0"} dB`}
+                        />
+                      ))
+                    ) : (
+                      <p className="text-xs text-[var(--ui-muted)]">
+                        No MFE frames available for this clip.
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-2 flex justify-between text-[11px] text-[var(--ui-muted)]">
+                    <span>Low mel bands</span>
+                    <span>High mel bands</span>
+                  </div>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-[var(--ui-muted)]">
+                The feature extractor stays in place, but the UI now shows a compact
+                summary instead of a second full-size heatmap.
               </p>
             </div>
           </section>
@@ -611,6 +888,84 @@ function computeRms(samples: Float32Array): number {
     sum += x * x;
   }
   return Math.sqrt(sum / samples.length);
+}
+
+function computeMeanBands(frames: Float32Array[]): Float32Array {
+  const numBands = frames[0]?.length ?? 0;
+  const out = new Float32Array(numBands);
+  if (!frames.length || numBands === 0) return out;
+
+  for (let t = 0; t < frames.length; t++) {
+    const frame = frames[t]!;
+    for (let band = 0; band < numBands; band++) {
+      out[band] += frame[band] ?? 0;
+    }
+  }
+
+  for (let band = 0; band < numBands; band++) {
+    out[band] /= frames.length;
+  }
+  return out;
+}
+
+function computeVectorMean(values: Float32Array): number {
+  if (values.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) sum += values[i] ?? 0;
+  return sum / values.length;
+}
+
+function normalizeVector(values: Float32Array): number[] {
+  if (values.length === 0) return [];
+  let min = Infinity;
+  let max = -Infinity;
+
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i] ?? 0;
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+
+  const range = Math.max(1e-6, max - min);
+  return Array.from(values, (value) => ((value ?? 0) - min) / range);
+}
+
+function buildEdgeImpulseCsv(
+  dbFrames: Float32Array[],
+  hopLength: number,
+  sampleRate: number
+): string {
+  const numBands = dbFrames[0]?.length ?? 0;
+  const headers = ["timestamp"];
+  for (let i = 0; i < numBands; i++) {
+    headers.push(`mel_${String(i + 1).padStart(2, "0")}`);
+  }
+
+  const rows = [headers.join(",")];
+  for (let frameIndex = 0; frameIndex < dbFrames.length; frameIndex++) {
+    const timeMs = Math.round((frameIndex * hopLength * 1000) / sampleRate);
+    const row = [String(timeMs)];
+    const frame = dbFrames[frameIndex]!;
+    for (let band = 0; band < frame.length; band++) {
+      row.push((frame[band] ?? 0).toFixed(4));
+    }
+    rows.push(row.join(","));
+  }
+
+  return rows.join("\n");
+}
+
+function buildEdgeImpulseFileName(label: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${sanitizeLabel(label) || "sample"}-${stamp}.csv`;
+}
+
+function sanitizeLabel(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function formatDuration(seconds: number): string {
