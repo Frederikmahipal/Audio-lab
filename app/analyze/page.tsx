@@ -249,7 +249,7 @@ export default function AnalyzePage() {
   }
 
   function handleDownloadMfeCsv() {
-    if (!logMelResult?.dbFrames.length) return;
+    if (!logMelResult?.dbFrames.length || !audio?.sampleRate) return;
 
     const csv = buildEdgeImpulseCsv(
       logMelResult.dbFrames,
