@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       {
         success: false,
         error:
-          "Missing Edge Impulse API key. Set EDGE_IMPULSE_API_KEY in your environment.",
+          "Missing API key.",
       },
       { status: 500 }
     );
@@ -61,7 +61,6 @@ export async function POST(req: Request) {
   }
 
   const baseUrl =
-    process.env.EDGE_IMPULSE_INGESTION_BASE_URL ??
     "https://ingestion.edgeimpulse.com";
 
   const formData = new FormData();
