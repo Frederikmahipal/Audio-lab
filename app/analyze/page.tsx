@@ -377,9 +377,6 @@ export default function AnalyzePage() {
               <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--ui-muted)]">
                 Playback
               </h2>
-              <p className="mt-1 text-xs text-[var(--ui-muted)]">
-                Realtime preview with optional A/B and gain matching.
-              </p>
               <div className="mt-3">
                 <AudioPlayer
                   samples={playbackSamples}
@@ -513,9 +510,6 @@ export default function AnalyzePage() {
               <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--ui-muted)]">
                 Spectrogram Lens
               </h2>
-              <p className="mt-1 text-xs text-[var(--ui-muted)]">
-                Visual-only STFT settings. Playback processing stays fixed.
-              </p>
               <div className="mt-3 space-y-2">
                 <label className="block rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2.5 py-2">
                   <span className="flex items-center justify-between text-[11px] uppercase tracking-[0.1em] text-[var(--ui-muted)]">
@@ -827,10 +821,6 @@ export default function AnalyzePage() {
                   </div>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-[var(--ui-muted)]">
-                The feature extractor stays in place, but the UI now shows a compact
-                summary instead of a second full-size heatmap.
-              </p>
             </div>
           </section>
         </div>

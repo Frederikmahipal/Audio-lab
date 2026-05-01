@@ -9,11 +9,11 @@ const SAMPLE_RATE = 16000;
 const SIGNAL_OPTIONS: { value: SignalType; label: string }[] = [
   {
     value: "harmonic_sweep",
-    label: "Harmonic sweep (clear diagonal bands)",
+    label: "Rising tone sweep",
   },
   {
     value: "step_pattern",
-    label: "Step pattern (harmonics + transients)",
+    label: "Stepped notes",
   },
 ];
 
